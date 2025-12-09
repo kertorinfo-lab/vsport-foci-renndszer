@@ -1,60 +1,60 @@
-// api/analyze.js - JAVÍTOTT, HELYES VERZIÓ (A korábbi front-endhez)
+import fetch from 'node-fetch';
 
-import fetch from 'node-fetch'; // Vagy const fetch = require('node-fetch');
-
-// Itt fér hozzá a Vercelben elrejtett OPENAI_API_KEY-hez
+// FIGYELEM: A KULCSOT A VERCEL KÖRNYEZETI VÁLTOZÓIBÓL VESZI!
+// Győződj meg róla, hogy az OPENAI_API_KEY be van állítva a Vercel dashboardodon.
 const API_KEY = process.env.OPENAI_API_KEY; 
 
 export default async function (request, response) {
     
-    // Kliens oldali hívások kezelése
+    // 1. Kérés metódusának ellenőrzése
     if (request.method !== 'POST') {
-        return response.status(405).json({ error: 'Method Not Allowed' });
+        return response.status(405).json({ error: 'Csak POST kérés engedélyezett.' });
     }
 
+    // 2. API kulcs ellenőrzése
     if (!API_KEY) {
-        // Hiba, ha a kulcs nincs beállítva a Vercel Environment Variables-ben!
-        return response.status(500).json({ error: 'OPENAI_API_KEY is not configured on the server.' });
+        return response.status(500).json({ error: 'OPENAI_API_KEY hiányzik a szerver beállításaiból.' });
     }
     
-    // Lekérjük a klienstől kapott promptot. A KULCS ITT NEM KELL!
-    const { prompt } = request.body;
-    
-    if (!prompt) {
-        // Ez a hiba jelenik meg, ha a front-end nem küld promptot
-        return response.status(400).json({ error: 'Prompt data is missing.' }); 
-    }
-
     try {
+        // 3. Frontend által küldött adatok lekérése (csak a prompt szöveget várjuk)
+        const { prompt } = request.body;
+        
+        if (!prompt) {
+            // Ez a 400-as hibaüzenet jelenik meg, ha a frontend üres/hiányos adatot küld
+            return response.status(400).json({ error: 'Hiányzó prompt adat.' }); 
+        }
+
+        // 4. OpenAI API hívás
         const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json', 
-                // A kulcsot itt használja a szerver, a Vercelből veszi!
+                // A kulcsot itt használja a szerver
                 'Authorization': `Bearer ${API_KEY}` 
             },
             body: JSON.stringify({
-                // Modell: 
-                model: "gpt-4o", // Maradjunk az elérhető és gyors modellnél
+                model: "gpt-4o", // Modern, gyors modell a feladatra
                 messages: [{role: "user", content: prompt}],
-                temperature: 0.2,
-                max_completion_tokens: 1000 // Túl alacsony volt a 300
+                temperature: 0.2, // Alacsonyabb hőmérséklet, szigorúbb, matematikai válaszhoz
+                max_completion_tokens: 1000 // Maximális válaszhossz
             })
         });
 
         const data = await openaiResponse.json();
 
+        // 5. OpenAI hiba kezelése (pl. kulcs érvénytelen)
         if (data.error) {
             console.error("OpenAI API Error:", data.error.message);
             return response.status(502).json({ error: `OpenAI API hiba: ${data.error.message}` });
         }
         
-        // Visszaküldjük a választ a kliens oldalra
+        // 6. Sikeres válasz visszaküldése a frontendnek
         const resultText = data.choices[0].message.content;
         return response.status(200).json({ result: resultText });
 
     } catch (error) {
         console.error("Server Error:", error);
-        return response.status(500).json({ error: 'Internal Server Error during AI communication.' });
+        return response.status(500).json({ error: `Belső szerverhiba: ${error.message}` });
     }
 }
