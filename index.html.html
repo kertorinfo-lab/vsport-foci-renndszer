@@ -376,69 +376,129 @@ document.addEventListener('DOMContentLoaded', () => {
     function $(id){return document.getElementById(id);}
     function safeNumber(v){ const n = parseFloat(v); return isFinite(n) ? n : NaN; }
     
-    function computeTwoWayStats(o1, o2, name) {
-        // A beérkező o1 és o2 már biztosan érvényes szám a validáció miatt.
-        // Itt számítjuk ki a VIG / Árrést, és a valós valószínűségekhez viszonyított Edge-t.
-        const m = ((1/o1 + 1/o2) - 1) * 100; // Árrés százalékban
-        const fair1 = (1/o1) / (1/o1 + 1/o2); // Fair valószínűség 1. tippre
-        const fair2 = (1/o2) / (1/o1 + 1/o2); // Fair valószínűség 2. tippre
-        
-        // Edge számítása: (Fair valószínűség * Odds) - 1 = Edge (érték)
-        // A Poisson valószínűségeket az AI-nak kell becsülnie.
-        // Ez az Edge a bukméker árrésének (vig) figyelembe vételével számított VALÓS EDGE.
-        const edge1 = (fair1 * o1) - 1; 
-        const edge2 = (fair2 * o2) - 1;
-        
-        return { margin: m.toFixed(2), edge1: edge1.toFixed(4), edge2: edge2.toFixed(4) };
+    // Faktorális számítás (segédfüggvény a Poissonhoz)
+    function factorial(n) {
+        if (n === 0 || n === 1) return 1;
+        let result = 1;
+        for (let i = 2; i <= n; i++) {
+            result *= i;
+        }
+        return result;
     }
 
-    function buildStrictPrompt(avgGoals, ggStats, ou15, ou25, ou35) {
+    // Poisson valószínűség számítása
+    function poisson(lambda, k) {
+        // P(X=k) = (lambda^k * e^-lambda) / k!
+        return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial(k);
+    }
+
+    // --- AZ ÚJ EDGE SZÁMÍTÁSI LOGIKA ---
+    function computeTwoWayStats(oddsYes, oddsNo, avgGoals) {
+        // A gólátlag 10%-kal való súlyozása a "pozitív-orientált" modell érdekében
+        // Mivel VSport-ban a Home/Away nem értelmezett, az összeg gólátlagot súlyozzuk.
+        const lambdaAdj = avgGoals * 1.10; // A lambda a javaslat szerint 10%-kal megnő.
+
+        let probYes;
+        let probNo;
+
+        // GG / NG
+        if ($('ggYesOdds').value == oddsYes && $('ggNoOdds').value == oddsNo) {
+             // GG IGEN valószínűség (P(GG)=1-P(0-0))
+             // Feltételezve, hogy a gólok egyenletesen oszlanak el a csapatok között (pl. lambdaHome=lambdaAway=lambdaAdj/2)
+             const lambdaHalf = lambdaAdj / 2;
+             const p0_0 = poisson(lambdaHalf, 0) * poisson(lambdaHalf, 0);
+             probYes = 1 - p0_0;
+             probNo = p0_0;
+        } 
+        // Over/Under
+        else {
+            let probCumulative = 0;
+            const threshold = (oddsYes == $('over15Odds').value || oddsYes == $('over25Odds').value || oddsYes == $('over35Odds').value) ? 
+                              (oddsYes == $('over15Odds').value ? 1.5 : (oddsYes == $('over25Odds').value ? 2.5 : 3.5)) : 
+                              (oddsNo == $('under15Odds').value ? 1.5 : (oddsNo == $('under25Odds').value ? 2.5 : 3.5));
+
+            // Over/Under számítás: Összeadja P(k) valószínűségeket 0-tól a küszöbértékig
+            for (let k = 0; k <= Math.floor(threshold); k++) {
+                probCumulative += poisson(lambdaAdj, k);
+            }
+
+            if (oddsYes == $('over15Odds').value || oddsYes == $('over25Odds').value || oddsYes == $('over35Odds').value) {
+                // Over (probYes) = 1 - P(<=küszöb)
+                probYes = 1 - probCumulative;
+                probNo = probCumulative; // Under
+            } else {
+                // Under (probYes) = P(<=küszöb)
+                probYes = probCumulative;
+                probNo = 1 - probCumulative; // Over
+            }
+        }
         
-        // --- JAVÍTVA: MARGIN_DEDUCTION ELTÁVOLÍTVA A SZÁMÍTÁSBÓL ---
-        // A Edge értékek már önmagukban hordozzák a bukméker árrését.
+        // Fair Odds
+        const fairYes = 1 / probYes;
+        const fairNo = 1 / probNo;
+
+        // Érzékeny Edge Formula: Edge = (Bookmaker Odds - Fair Odds) / Fair Odds
+        // NOTE: Az oddsYes és oddsNo már a bemeneti oddsok, nem a Fair oddsok!
+        const edge1 = (oddsYes - fairYes) / fairYes;
+        const edge2 = (oddsNo - fairNo) / fairNo;
         
-        // Az itt használt Edge értékek az eredeti (Fair Odds - Bookie Odds) alapú Edge-ek.
-        const ggEdge1 = parseFloat(ggStats.edge1); 
-        const ggEdge2 = parseFloat(ggStats.edge2);
+        // Meglévő Margin (Vig) számítás
+        const m = ((1/oddsYes + 1/oddsNo) - 1) * 100;
 
-        const ou15Edge1 = parseFloat(ou15.edge1);
-        const ou15Edge2 = parseFloat(ou15.edge2);
+        return { 
+            margin: m.toFixed(2), 
+            prob1: probYes.toFixed(4), 
+            prob2: probNo.toFixed(4), 
+            fair1: fairYes.toFixed(2), 
+            fair2: fairNo.toFixed(2), 
+            edge1: edge1.toFixed(4), 
+            edge2: edge2.toFixed(4) 
+        };
+    }
 
-        const ou25Edge1 = parseFloat(ou25.edge1);
-        const ou25Edge2 = parseFloat(ou25.edge2);
-
-        const ou35Edge1 = parseFloat(ou35.edge1);
-        const ou35Edge2 = parseFloat(ou35.edge2);
-
-        // ------------------------------------------
-
+    function buildStrictPrompt(avgGoals, ggS, ou15, ou25, ou35) {
+        
+        // Adatok továbbküldése az AI-nak
         return `
 Te egy szigorú VSport tippadó rendszer vagy.
-A fő célod az Ajánlja/Kis téttel Ajánlja tippek megadása.
+A fő célod az Ajánlja/Kis téttel Ajánlja tippek megadása, a POZITÍV EDGE-re alapozva.
 TILOS MAGYARÁZNI. TILOS INDOKOLNI a fő tippet.
-FIGYELEM: Az alábbi Edge értékek a bukméker árrésével (Vig) korrigáltak. Csak pozitív Edge esetén beszélhetünk valós előnyről.
+A model valószínűsége $\lambda$ * 1.10 (10% súlyozott gólátlaggal) lett számolva, hogy megnöveljük a pozitív edge esélyét.
 
-Csak az alábbi adatokat elemezd matematikailag (Edge/Value):
-Gólátlag (Poisson lambda): ${avgGoals}
-GG piac Edge: Igen=${ggEdge1.toFixed(4)}, Nem=${ggEdge2.toFixed(4)} (Margin: ${ggStats.margin}%)
-O/U 1.5 Edge: Over=${ou15Edge1.toFixed(4)}, Under=${ou15Edge2.toFixed(4)} (Margin: ${ou15.margin}%)
-O/U 2.5 Edge: Over=${ou25Edge1.toFixed(4)}, Under=${ou25Edge2.toFixed(4)} (Margin: ${ou25.margin}%)
-O/U 3.5 Edge: Over=${ou35Edge1.toFixed(4)}, Under=${ou35Edge2.toFixed(4)} (Margin: ${ou35.margin}%)
+Csak az alábbi adatokat elemezd matematikailag (Edge/Value), a megadott Edge-szűrők alapján:
+
+Gólátlag (Súlyozott $\lambda$): ${(avgGoals * 1.10).toFixed(2)}
+--- GG Igen (${$('ggYesOdds').value} / ${ggS.prob1}) | Nem (${$('ggNoOdds').value} / ${ggS.prob2}) ---
+Fair Odds: ${ggS.fair1} / ${ggS.fair2}
+Edge: Igen=${ggS.edge1}, Nem=${ggS.edge2} (Margin: ${ggS.margin}%)
+
+--- O/U 1.5 Over (${$('over15Odds').value} / ${ou15.prob1}) | Under (${$('under15Odds').value} / ${ou15.prob2}) ---
+Fair Odds: ${ou15.fair1} / ${ou15.fair2}
+Edge: Over=${ou15.edge1}, Under=${ou15.edge2} (Margin: ${ou15.margin}%)
+
+--- O/U 2.5 Over (${$('over25Odds').value} / ${ou25.prob1}) | Under (${$('under25Odds').value} / ${ou25.prob2}) ---
+Fair Odds: ${ou25.fair1} / ${ou25.fair2}
+Edge: Over=${ou25.edge1}, Under=${ou25.edge2} (Margin: ${ou25.margin}%)
+
+--- O/U 3.5 Over (${$('over35Odds').value} / ${ou35.prob1}) | Under (${$('under35Odds').value} / ${ou35.prob2}) ---
+Fair Odds: ${ou35.fair1} / ${ou35.fair2}
+Edge: Over=${ou35.edge1}, Under=${ou35.edge2} (Margin: ${ou35.margin}%)
 
 A kimeneted KIZÁRÓLAG az alábbi formátumot kövesse. Először a 4 fő tippet, majd egy merész tippet!
 
 --- FŐ TIPPEK ---
 [PIAC TIPPJE] - MINŐSÍTÉS (HA NEM AJÁNLJA: RÖVID INDOKLÁS)
 
-A "MINŐSÍTÉS" csak ez a három lehet (a POZITÍV EDGE alapján!):
-1. "Ajánlja" (Ha az Edge > 0.05)
-2. "Kis téttel ajánlja" (Ha az Edge 0 és 0.05 között van)
-3. "Nem ajánlja" (Ha az Edge <= 0)
+A "MINŐSÍTÉS" csak ez a három lehet (a megadott Edge-szűrők alapján):
+1. "Erős ajánlott" (Ha az Edge >= 0.10)
+2. "Ajánlja" (Ha az Edge 0.05 és 0.10 között van)
+3. "Óvatos ajánlás" (Ha az Edge 0.02 és 0.05 között van)
+4. "Nem ajánlja" (Ha az Edge < 0.02)
 
-HA A MINŐSÍTÉS "Nem ajánlja", a zárójelben lévő RÖVID INDOKLÁS KÖTELEZŐ! (pl. [UNDER 2.5] - Nem ajánlja (Az Edge negatív) )
+HA A MINŐSÍTÉS "Nem ajánlja", a zárójelben lévő RÖVID INDOKLÁS KÖTELEZŐ! (pl. [UNDER 2.5] - Nem ajánlja (Az Edge a 2% küszöb alatt van) )
 
 --- MERÉSZ TIPP ---
-A merész tippet mindig ajánld, a **legmagasabb pozitív Edge** (vagy legkisebb negatív Edge) esetén, de a legmagasabb oddsú piacokon keresd! 
+A merész tippet mindig a legmagasabb Edge-dzsel rendelkező piacokon keresd, de a magasabb oddsú (kockázatosabb) lehetőségeket részesítsd előnyben!
 [MERÉSZ TIPP] - Merész téttel ajánlja (RÖVID OK, pl. Magas Edge/Odds kombó)
 
 Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
@@ -468,17 +528,17 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             alert("HIÁNYOS VAGY ÉRVÉNYTELEN INPUT! Kérlek, töltsd ki az összes mezőt érvényes számmal.");
             return; 
         }
-        // --- VALIDÁCIÓS BLOKK VÉGE ---
+        
+        const avgGoals = safeNumber($('avgGoals').value);
 
-        // Adatok összegyűjtése a Serverless Function számára
+        // --- ADAT GYŰJTÉS ÉS SZÁMÍTÁS AZ ÚJ LOGIKA ALAPJÁN ---
         const payload = {
-            avgGoals: safeNumber($('avgGoals').value),
-            ggS: computeTwoWayStats(safeNumber($('ggYesOdds').value), safeNumber($('ggNoOdds').value)),
-            ou15: computeTwoWayStats(safeNumber($('over15Odds').value), safeNumber($('under15Odds').value)),
-            ou25: computeTwoWayStats(safeNumber($('over25Odds').value), safeNumber($('under25Odds').value)),
-            ou35: computeTwoWayStats(safeNumber($('over35Odds').value), safeNumber($('under35Odds').value)),
+            avgGoals: avgGoals,
+            ggS: computeTwoWayStats(safeNumber($('ggYesOdds').value), safeNumber($('ggNoOdds').value), avgGoals),
+            ou15: computeTwoWayStats(safeNumber($('over15Odds').value), safeNumber($('under15Odds').value), avgGoals),
+            ou25: computeTwoWayStats(safeNumber($('over25Odds').value), safeNumber($('under25Odds').value), avgGoals),
+            ou35: computeTwoWayStats(safeNumber($('over35Odds').value), safeNumber($('under35Odds').value), avgGoals),
         };
-        // A prompt generálása az Edge korrekció nélkül
         const prompt = buildStrictPrompt(payload.avgGoals, payload.ggS, payload.ou15, payload.ou25, payload.ou35);
 
 
@@ -506,8 +566,8 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             
             const text = data.result.replace(/\n/g, '<br>');
             
-            // Üzenet módosítása, mert már nem 3%-kal korrigált az Edge
-            resDiv.innerHTML = `<strong style="color:var(--accent)">AI TIPPEK (NEM KORRIGÁLT EDGE):</strong><br><br>${text}`;
+            // Üzenet módosítása
+            resDiv.innerHTML = `<strong style="color:var(--accent)">AI TIPPEK (ÉRZÉKENY EDGE MODELL):</strong><br><br>${text}`;
             resDiv.style.display = 'block';
 
             // 2. KREDIT LEVONÁS (Sikeres elemzés után)
