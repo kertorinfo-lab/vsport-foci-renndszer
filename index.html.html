@@ -378,35 +378,37 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function computeTwoWayStats(o1, o2, name) {
         // A beérkező o1 és o2 már biztosan érvényes szám a validáció miatt.
-        const m = ((1/o1 + 1/o2) - 1) * 100;
-        const fair1 = (1/o1) / (1/o1 + 1/o2);
-        const fair2 = (1/o2) / (1/o1 + 1/o2);
-        const edge1 = (fair1 * o1) - 1;
+        // Itt számítjuk ki a VIG / Árrést, és a valós valószínűségekhez viszonyított Edge-t.
+        const m = ((1/o1 + 1/o2) - 1) * 100; // Árrés százalékban
+        const fair1 = (1/o1) / (1/o1 + 1/o2); // Fair valószínűség 1. tippre
+        const fair2 = (1/o2) / (1/o1 + 1/o2); // Fair valószínűség 2. tippre
+        
+        // Edge számítása: (Fair valószínűség * Odds) - 1 = Edge (érték)
+        // A Poisson valószínűségeket az AI-nak kell becsülnie.
+        // Ez az Edge a bukméker árrésének (vig) figyelembe vételével számított VALÓS EDGE.
+        const edge1 = (fair1 * o1) - 1; 
         const edge2 = (fair2 * o2) - 1;
+        
         return { margin: m.toFixed(2), edge1: edge1.toFixed(4), edge2: edge2.toFixed(4) };
     }
 
     function buildStrictPrompt(avgGoals, ggStats, ou15, ou25, ou35) {
         
-        // --- VÁLTOZÁS ITT: -3% MARGIN LEVONÁSA ---
-        const MARGIN_DEDUCTION = 0.03;
+        // --- JAVÍTVA: MARGIN_DEDUCTION ELTÁVOLÍTVA A SZÁMÍTÁSBÓL ---
+        // A Edge értékek már önmagukban hordozzák a bukméker árrését.
+        
+        // Az itt használt Edge értékek az eredeti (Fair Odds - Bookie Odds) alapú Edge-ek.
+        const ggEdge1 = parseFloat(ggStats.edge1); 
+        const ggEdge2 = parseFloat(ggStats.edge2);
 
-        // GG
-        // A toFixed(4) hívása most már biztonságos, mert az adatok már validálva vannak.
-        const ggEdge1 = parseFloat(ggStats.edge1) - MARGIN_DEDUCTION;
-        const ggEdge2 = parseFloat(ggStats.edge2) - MARGIN_DEDUCTION;
+        const ou15Edge1 = parseFloat(ou15.edge1);
+        const ou15Edge2 = parseFloat(ou15.edge2);
 
-        // O/U 1.5
-        const ou15Edge1 = parseFloat(ou15.edge1) - MARGIN_DEDUCTION;
-        const ou15Edge2 = parseFloat(ou15.edge2) - MARGIN_DEDUCTION;
+        const ou25Edge1 = parseFloat(ou25.edge1);
+        const ou25Edge2 = parseFloat(ou25.edge2);
 
-        // O/U 2.5
-        const ou25Edge1 = parseFloat(ou25.edge1) - MARGIN_DEDUCTION;
-        const ou25Edge2 = parseFloat(ou25.edge2) - MARGIN_DEDUCTION;
-
-        // O/U 3.5
-        const ou35Edge1 = parseFloat(ou35.edge1) - MARGIN_DEDUCTION;
-        const ou35Edge2 = parseFloat(ou35.edge2) - MARGIN_DEDUCTION;
+        const ou35Edge1 = parseFloat(ou35.edge1);
+        const ou35Edge2 = parseFloat(ou35.edge2);
 
         // ------------------------------------------
 
@@ -414,29 +416,29 @@ document.addEventListener('DOMContentLoaded', () => {
 Te egy szigorú VSport tippadó rendszer vagy.
 A fő célod az Ajánlja/Kis téttel Ajánlja tippek megadása.
 TILOS MAGYARÁZNI. TILOS INDOKOLNI a fő tippet.
-FIGYELEM: Minden Edge értékből levontunk 3% árrést. Csak pozitív Edge esetén beszélhetünk valós előnyről.
+FIGYELEM: Az alábbi Edge értékek a bukméker árrésével (Vig) korrigáltak. Csak pozitív Edge esetén beszélhetünk valós előnyről.
 
-Csak az alábbi, már korrigált adatokat elemezd matematikailag (Edge/Value):
-Gólátlag: ${avgGoals}
-GG piac KORRIGÁLT Edge (-3%): Igen=${ggEdge1.toFixed(4)}, Nem=${ggEdge2.toFixed(4)}
-O/U 1.5 KORRIGÁLT Edge (-3%): Over=${ou15Edge1.toFixed(4)}, Under=${ou15Edge2.toFixed(4)}
-O/U 2.5 KORRIGÁLT Edge (-3%): Over=${ou25Edge1.toFixed(4)}, Under=${ou25Edge2.toFixed(4)}
-O/U 3.5 KORRIGÁLT Edge (-3%): Over=${ou35Edge1.toFixed(4)}, Under=${ou35Edge2.toFixed(4)}
+Csak az alábbi adatokat elemezd matematikailag (Edge/Value):
+Gólátlag (Poisson lambda): ${avgGoals}
+GG piac Edge: Igen=${ggEdge1.toFixed(4)}, Nem=${ggEdge2.toFixed(4)} (Margin: ${ggStats.margin}%)
+O/U 1.5 Edge: Over=${ou15Edge1.toFixed(4)}, Under=${ou15Edge2.toFixed(4)} (Margin: ${ou15.margin}%)
+O/U 2.5 Edge: Over=${ou25Edge1.toFixed(4)}, Under=${ou25Edge2.toFixed(4)} (Margin: ${ou25.margin}%)
+O/U 3.5 Edge: Over=${ou35Edge1.toFixed(4)}, Under=${ou35Edge2.toFixed(4)} (Margin: ${ou35.margin}%)
 
 A kimeneted KIZÁRÓLAG az alábbi formátumot kövesse. Először a 4 fő tippet, majd egy merész tippet!
 
 --- FŐ TIPPEK ---
 [PIAC TIPPJE] - MINŐSÍTÉS (HA NEM AJÁNLJA: RÖVID INDOKLÁS)
 
-A "MINŐSÍTÉS" csak ez a három lehet (a KORRIGÁLT EDGE alapján!):
-1. "Ajánlja" (Ha a KORRIGÁLT Edge > 0.05)
-2. "Kis téttel ajánlja" (Ha a KORRIGÁLT Edge 0 és 0.05 között van)
-3. "Nem ajánlja" (Ha a KORRIGÁLT Edge negatív)
+A "MINŐSÍTÉS" csak ez a három lehet (a POZITÍV EDGE alapján!):
+1. "Ajánlja" (Ha az Edge > 0.05)
+2. "Kis téttel ajánlja" (Ha az Edge 0 és 0.05 között van)
+3. "Nem ajánlja" (Ha az Edge <= 0)
 
-HA A MINŐSÍTÉS "Nem ajánlja", a zárójelben lévő RÖVID INDOKLÁS KÖTELEZŐ! (pl. [UNDER 2.5] - Nem ajánlja (A 3% levonás után az Edge már negatív) )
+HA A MINŐSÍTÉS "Nem ajánlja", a zárójelben lévő RÖVID INDOKLÁS KÖTELEZŐ! (pl. [UNDER 2.5] - Nem ajánlja (Az Edge negatív) )
 
 --- MERÉSZ TIPP ---
-A merész tippet mindig ajánld, a legmagasabb pozitív Edge (vagy legkisebb negatív Edge) esetén, de a legmagasabb oddsú piacokon keresd! A merész tipphez is a KORRIGÁLT Edge-et használd.
+A merész tippet mindig ajánld, a **legmagasabb pozitív Edge** (vagy legkisebb negatív Edge) esetén, de a legmagasabb oddsú piacokon keresd! 
 [MERÉSZ TIPP] - Merész téttel ajánlja (RÖVID OK, pl. Magas Edge/Odds kombó)
 
 Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
@@ -454,21 +456,19 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             return;
         }
 
-        // --- AZ ÚJ, JAVÍTOTT VALIDÁCIÓS BLOKK KEZDŐDIK ---
+        // --- VALIDÁCIÓS BLOKK ---
         const inputIds = [
             'avgGoals', 'ggYesOdds', 'ggNoOdds', 'over15Odds', 'under15Odds',
             'over25Odds', 'under25Odds', 'over35Odds', 'under35Odds'
         ];
         
-        // Ellenőrizzük, hogy minden input érvényes szám-e.
         const allInputsValid = inputIds.every(id => isFinite(safeNumber($(id).value)));
 
         if (!allInputsValid) {
-            // Ez a validáció akadályozza meg a frontend összeomlását, ami a 400-as hibához vezetett!
             alert("HIÁNYOS VAGY ÉRVÉNYTELEN INPUT! Kérlek, töltsd ki az összes mezőt érvényes számmal.");
             return; 
         }
-        // --- AZ ÚJ, JAVÍTOTT VALIDÁCIÓS BLOKK VÉGE ---
+        // --- VALIDÁCIÓS BLOKK VÉGE ---
 
         // Adatok összegyűjtése a Serverless Function számára
         const payload = {
@@ -478,6 +478,7 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             ou25: computeTwoWayStats(safeNumber($('over25Odds').value), safeNumber($('under25Odds').value)),
             ou35: computeTwoWayStats(safeNumber($('over35Odds').value), safeNumber($('under35Odds').value)),
         };
+        // A prompt generálása az Edge korrekció nélkül
         const prompt = buildStrictPrompt(payload.avgGoals, payload.ggS, payload.ou15, payload.ou25, payload.ou35);
 
 
@@ -490,24 +491,23 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
         resDiv.style.display = 'none';
 
         try {
-            // GPT hívás - MOST MÁR A VERCEL BACKENDET HÍVJA
+            // GPT hívás
             const resp = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                // CSAK A PROMPT TEXT-et KÜLDJÜK! A KULCS REJTVE MARAD.
                 body: JSON.stringify({ prompt: prompt }) 
             });
 
             const data = await resp.json();
             
             if(resp.status !== 200) {
-                 // Ha a Serverless Function-ben hiba van (pl. kulcs hiányzik), itt kapjuk el
                  throw new Error(data.error || `Hiba történt a Serverless Function-ben. Status: ${resp.status}`);
             }
             
             const text = data.result.replace(/\n/g, '<br>');
             
-            resDiv.innerHTML = `<strong style="color:var(--accent)">AI TIPPEK (KORRIGÁLT EDGE -3%):</strong><br><br>${text}`;
+            // Üzenet módosítása, mert már nem 3%-kal korrigált az Edge
+            resDiv.innerHTML = `<strong style="color:var(--accent)">AI TIPPEK (NEM KORRIGÁLT EDGE):</strong><br><br>${text}`;
             resDiv.style.display = 'block';
 
             // 2. KREDIT LEVONÁS (Sikeres elemzés után)
