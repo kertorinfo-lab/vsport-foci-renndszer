@@ -235,6 +235,7 @@
                     <input id="under35Odds" type="number" placeholder="Under 3.5" value="1.30" style="margin-bottom:0;">
                 </div>
             </div>
+
             <button class="btn btn-primary" id="analyzeBtn">🚀 Elemzés (-1 Kredit)</button>
             <button class="btn btn-danger" id="logoutBtn">Kijelentkezés</button>
 
@@ -386,6 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function safeNumber(v){ const n = parseFloat(v); return isFinite(n) ? n : NaN; }
     
     function computeTwoWayStats(o1, o2, name) {
+        // ... (Margin calculation remains the same for raw data calculation)
         const m = ((1/o1 + 1/o2) - 1) * 100;
         const fair1 = (1/o1) / (1/o1 + 1/o2);
         const fair2 = (1/o2) / (1/o1 + 1/o2);
@@ -395,31 +397,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function buildStrictPrompt(avgGoals, ggStats, ou15, ou25, ou35) {
+        
+        // --- VÁLTOZÁS ITT: -3% MARGIN LEVONÁSA ---
+        const MARGIN_DEDUCTION = 0.03;
+
+        // GG
+        const ggEdge1 = parseFloat(ggStats.edge1) - MARGIN_DEDUCTION;
+        const ggEdge2 = parseFloat(ggStats.edge2) - MARGIN_DEDUCTION;
+
+        // O/U 1.5
+        const ou15Edge1 = parseFloat(ou15.edge1) - MARGIN_DEDUCTION;
+        const ou15Edge2 = parseFloat(ou15.edge2) - MARGIN_DEDUCTION;
+
+        // O/U 2.5
+        const ou25Edge1 = parseFloat(ou25.edge1) - MARGIN_DEDUCTION;
+        const ou25Edge2 = parseFloat(ou25.edge2) - MARGIN_DEDUCTION;
+
+        // O/U 3.5
+        const ou35Edge1 = parseFloat(ou35.edge1) - MARGIN_DEDUCTION;
+        const ou35Edge2 = parseFloat(ou35.edge2) - MARGIN_DEDUCTION;
+
+        // ------------------------------------------
+
         return `
 Te egy szigorú VSport tippadó rendszer vagy.
 A fő célod az Ajánlja/Kis téttel Ajánlja tippek megadása.
 TILOS MAGYARÁZNI. TILOS INDOKOLNI a fő tippet.
-Csak az alábbi adatokat elemezd matematikailag (Edge/Value):
+FIGYELEM: Minden Edge értékből levontunk 3% árrést. Csak pozitív Edge esetén beszélhetünk valós előnyről.
+
+Csak az alábbi, már korrigált adatokat elemezd matematikailag (Edge/Value):
 Gólátlag: ${avgGoals}
-GG piac Edge: Igen=${ggStats.edge1}, Nem=${ggStats.edge2}
-O/U 1.5 Edge: Over=${ou15.edge1}, Under=${ou15.edge2}
-O/U 2.5 Edge: Over=${ou25.edge1}, Under=${ou25.edge2}
-O/U 3.5 Edge: Over=${ou35.edge1}, Under=${ou35.edge2}
+GG piac KORRIGÁLT Edge (-3%): Igen=${ggEdge1.toFixed(4)}, Nem=${ggEdge2.toFixed(4)}
+O/U 1.5 KORRIGÁLT Edge (-3%): Over=${ou15Edge1.toFixed(4)}, Under=${ou15Edge2.toFixed(4)}
+O/U 2.5 KORRIGÁLT Edge (-3%): Over=${ou25Edge1.toFixed(4)}, Under=${ou25Edge2.toFixed(4)}
+O/U 3.5 KORRIGÁLT Edge (-3%): Over=${ou35Edge1.toFixed(4)}, Under=${ou35Edge2.toFixed(4)}
 
 A kimeneted KIZÁRÓLAG az alábbi formátumot kövesse. Először a 4 fő tippet, majd egy merész tippet!
 
 --- FŐ TIPPEK ---
 [PIAC TIPPJE] - MINŐSÍTÉS (HA NEM AJÁNLJA: RÖVID INDOKLÁS)
 
-A "MINŐSÍTÉS" csak ez a három lehet:
-1. "Ajánlja" (Ha az Edge > 0.05)
-2. "Kis téttel ajánlja" (Ha az Edge 0 és 0.05 között van)
-3. "Nem ajánlja" (Ha az Edge negatív)
+A "MINŐSÍTÉS" csak ez a három lehet (a KORRIGÁLT EDGE alapján!):
+1. "Ajánlja" (Ha a KORRIGÁLT Edge > 0.05)
+2. "Kis téttel ajánlja" (Ha a KORRIGÁLT Edge 0 és 0.05 között van)
+3. "Nem ajánlja" (Ha a KORRIGÁLT Edge negatív)
 
-HA A MINŐSÍTÉS "Nem ajánlja", a zárójelben lévő RÖVID INDOKLÁS KÖTELEZŐ! (pl. [UNDER 2.5] - Nem ajánlja (Az Edge 3%-nál is kevesebb) )
+HA A MINŐSÍTÉS "Nem ajánlja", a zárójelben lévő RÖVID INDOKLÁS KÖTELEZŐ! (pl. [UNDER 2.5] - Nem ajánlja (A 3% levonás után az Edge már negatív) )
 
 --- MERÉSZ TIPP ---
-A merész tippet mindig ajánld, a legmagasabb pozitív Edge (vagy legkisebb negatív Edge) esetén, de a legmagasabb oddsú piacokon keresd!
+A merész tippet mindig ajánld, a legmagasabb pozitív Edge (vagy legkisebb negatív Edge) esetén, de a legmagasabb oddsú piacokon keresd! A merész tipphez is a KORRIGÁLT Edge-et használd.
 [MERÉSZ TIPP] - Merész téttel ajánlja (RÖVID OK, pl. Magas Edge/Odds kombó)
 
 Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
@@ -466,7 +492,7 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
                     model: "gpt-4o",
                     messages: [{role: "user", content: prompt}],
                     temperature: 0.2, // Alacsony hőmérséklet a szigorúság miatt
-                    max_completion_tokens: 300 // Növelve, mert több szöveg kell (indoklás + merész tipp)
+                    max_completion_tokens: 300
                 })
             });
 
@@ -476,7 +502,7 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             
             const text = data.choices[0].message.content.replace(/\n/g, '<br>');
             
-            resDiv.innerHTML = `<strong style="color:var(--accent)">AI TIPPEK:</strong><br><br>${text}`;
+            resDiv.innerHTML = `<strong style="color:var(--accent)">AI TIPPEK (KORRIGÁLT EDGE -3%):</strong><br><br>${text}`;
             resDiv.style.display = 'block';
 
             // 2. KREDIT LEVONÁS (Sikeres elemzés után)
