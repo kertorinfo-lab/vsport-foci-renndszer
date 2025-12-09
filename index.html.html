@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     
     <style>
-        /* --- CSS (A CSS részt meghagytam változatlanul) --- */
+        /* --- CSS (Változatlanul hagyva) --- */
         :root {
             --bg-dark: #0f172a;
             --bg-card: #1e293b;
@@ -33,7 +33,7 @@
             min-height: 100vh;
             display: flex;
             justify-content: center;
-            align-items: center; /* Center everything */
+            align-items: center;
             padding: 20px;
         }
 
@@ -41,7 +41,7 @@
         .view-section {
             width: 100%;
             max-width: 650px;
-            display: none; /* Alapból minden rejtve */
+            display: none;
             animation: fadeIn 0.4s ease-out;
         }
 
@@ -98,7 +98,7 @@
             border-radius: 50%;
             background: rgba(255,255,255,0.1);
             transition: 0.3s;
-            display: none; /* Csak adminnak látszik */
+            display: none;
         }
         .admin-icon:hover { background: var(--primary); }
 
@@ -377,6 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function safeNumber(v){ const n = parseFloat(v); return isFinite(n) ? n : NaN; }
     
     function computeTwoWayStats(o1, o2, name) {
+        // A beérkező o1 és o2 már biztosan érvényes szám a validáció miatt.
         const m = ((1/o1 + 1/o2) - 1) * 100;
         const fair1 = (1/o1) / (1/o1 + 1/o2);
         const fair2 = (1/o2) / (1/o1 + 1/o2);
@@ -391,6 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const MARGIN_DEDUCTION = 0.03;
 
         // GG
+        // A toFixed(4) hívása most már biztonságos, mert az adatok már validálva vannak.
         const ggEdge1 = parseFloat(ggStats.edge1) - MARGIN_DEDUCTION;
         const ggEdge2 = parseFloat(ggStats.edge2) - MARGIN_DEDUCTION;
 
@@ -452,7 +454,21 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             return;
         }
 
-        // AZ API KULCS ELLENŐRZÉS KIVÉVE!
+        // --- AZ ÚJ, JAVÍTOTT VALIDÁCIÓS BLOKK KEZDŐDIK ---
+        const inputIds = [
+            'avgGoals', 'ggYesOdds', 'ggNoOdds', 'over15Odds', 'under15Odds',
+            'over25Odds', 'under25Odds', 'over35Odds', 'under35Odds'
+        ];
+        
+        // Ellenőrizzük, hogy minden input érvényes szám-e.
+        const allInputsValid = inputIds.every(id => isFinite(safeNumber($(id).value)));
+
+        if (!allInputsValid) {
+            // Ez a validáció akadályozza meg a frontend összeomlását, ami a 400-as hibához vezetett!
+            alert("HIÁNYOS VAGY ÉRVÉNYTELEN INPUT! Kérlek, töltsd ki az összes mezőt érvényes számmal.");
+            return; 
+        }
+        // --- AZ ÚJ, JAVÍTOTT VALIDÁCIÓS BLOKK VÉGE ---
 
         // Adatok összegyűjtése a Serverless Function számára
         const payload = {
@@ -486,7 +502,7 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             
             if(resp.status !== 200) {
                  // Ha a Serverless Function-ben hiba van (pl. kulcs hiányzik), itt kapjuk el
-                 throw new Error(data.error || "Hiba történt a Serverless Function-ben.");
+                 throw new Error(data.error || `Hiba történt a Serverless Function-ben. Status: ${resp.status}`);
             }
             
             const text = data.result.replace(/\n/g, '<br>');
