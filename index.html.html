@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     
     <style>
-        /* --- CSS --- */
+        /* --- CSS (A CSS részt meghagytam változatlanul) --- */
         :root {
             --bg-dark: #0f172a;
             --bg-card: #1e293b;
@@ -201,11 +201,6 @@
             </div>
             
             <div class="market-group">
-                <label>API Kulcs (sk-...)</label>
-                <input id="apiKey" type="password" placeholder="Illeszd be a kulcsodat ide..." />
-            </div>
-
-            <div class="market-group">
                 <label>Várható Gólátlag ($\lambda$)</label>
                 <input id="avgGoals" type="number" step="0.01" placeholder="pl. 2.50" value="2.50"/>
             </div>
@@ -329,11 +324,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const credits = getCredits(user);
 
-        // Logic: 
-        // 1. Ha 'fonix' -> Beenged.
-        // 2. Ha van kreditje -> Beenged.
-        // 3. Ha nincs kreditje -> Hibaüzenet és kidob.
-        
         if (user === ADMIN_USER) {
             currentUser = user;
             switchView('main');
@@ -387,7 +377,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function safeNumber(v){ const n = parseFloat(v); return isFinite(n) ? n : NaN; }
     
     function computeTwoWayStats(o1, o2, name) {
-        // ... (Margin calculation remains the same for raw data calculation)
         const m = ((1/o1 + 1/o2) - 1) * 100;
         const fair1 = (1/o1) / (1/o1 + 1/o2);
         const fair2 = (1/o2) / (1/o1 + 1/o2);
@@ -463,15 +452,18 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
             return;
         }
 
-        const apiKey = $('apiKey').value.trim();
-        if(!apiKey) { alert("Add meg az API kulcsot!"); return; }
+        // AZ API KULCS ELLENŐRZÉS KIVÉVE!
 
-        // Adatok
-        const avgGoals = safeNumber($('avgGoals').value);
-        const ggS = computeTwoWayStats(safeNumber($('ggYesOdds').value), safeNumber($('ggNoOdds').value));
-        const ou15 = computeTwoWayStats(safeNumber($('over15Odds').value), safeNumber($('under15Odds').value));
-        const ou25 = computeTwoWayStats(safeNumber($('over25Odds').value), safeNumber($('under25Odds').value));
-        const ou35 = computeTwoWayStats(safeNumber($('over35Odds').value), safeNumber($('under35Odds').value));
+        // Adatok összegyűjtése a Serverless Function számára
+        const payload = {
+            avgGoals: safeNumber($('avgGoals').value),
+            ggS: computeTwoWayStats(safeNumber($('ggYesOdds').value), safeNumber($('ggNoOdds').value)),
+            ou15: computeTwoWayStats(safeNumber($('over15Odds').value), safeNumber($('under15Odds').value)),
+            ou25: computeTwoWayStats(safeNumber($('over25Odds').value), safeNumber($('under25Odds').value)),
+            ou35: computeTwoWayStats(safeNumber($('over35Odds').value), safeNumber($('under35Odds').value)),
+        };
+        const prompt = buildStrictPrompt(payload.avgGoals, payload.ggS, payload.ou15, payload.ou25, payload.ou35);
+
 
         const resDiv = $('result');
         const loading = $('loading');
@@ -482,25 +474,22 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
         resDiv.style.display = 'none';
 
         try {
-            // GPT hívás
-            const prompt = buildStrictPrompt(avgGoals, ggS, ou15, ou25, ou35);
-            
-            const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+            // GPT hívás - MOST MÁR A VERCEL BACKENDET HÍVJA
+            const resp = await fetch('/api/analyze', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-                body: JSON.stringify({
-                    model: "gpt-4o",
-                    messages: [{role: "user", content: prompt}],
-                    temperature: 0.2, // Alacsony hőmérséklet a szigorúság miatt
-                    max_completion_tokens: 300
-                })
+                headers: { 'Content-Type': 'application/json' },
+                // CSAK A PROMPT TEXT-et KÜLDJÜK! A KULCS REJTVE MARAD.
+                body: JSON.stringify({ prompt: prompt }) 
             });
 
             const data = await resp.json();
             
-            if(data.error) throw new Error(data.error.message);
+            if(resp.status !== 200) {
+                 // Ha a Serverless Function-ben hiba van (pl. kulcs hiányzik), itt kapjuk el
+                 throw new Error(data.error || "Hiba történt a Serverless Function-ben.");
+            }
             
-            const text = data.choices[0].message.content.replace(/\n/g, '<br>');
+            const text = data.result.replace(/\n/g, '<br>');
             
             resDiv.innerHTML = `<strong style="color:var(--accent)">AI TIPPEK (KORRIGÁLT EDGE -3%):</strong><br><br>${text}`;
             resDiv.style.display = 'block';
@@ -511,7 +500,6 @@ Most add meg a 4 fő tippet (GG, O1.5, O2.5, O3.5) és 1 merész tippet!
                 setCredits(currentUser, newBalance);
                 updateUI();
                 
-                // Ha levonás után lett 0, figyelmeztessük, de még hagyjuk látni az eredményt
                 if (newBalance <= 0) {
                     alert("Figyelem! Ez volt az utolsó kredited.");
                 }
